@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Widget Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { color: #333; }
+        p { color: #666; line-height: 1.6; }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏋️ My Gym Website</h1>
+    <div class="card">
+        <h2>Welcome to the Gym!</h2>
+        <p>This is a test page to verify the SiteGPT chat widget loads correctly.</p>
+        <p>Look at the <strong>bottom-right corner</strong> — you should see a purple chat bubble. Click it to open the chatbot!</p>
+    </div>
+    <div class="card">
+        <h2>How it works</h2>
+        <p>The chat widget is loaded via a single script tag. It automatically connects to the backend API at localhost:8000, fetches your customization settings, and renders the chat bubble.</p>
+    </div>
+
+    <!-- SiteGPT Chat Widget -->
+    <script src="http://localhost:8000/static/widget.js"></script>
+</body>
+</html>

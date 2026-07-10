@@ -2,13 +2,18 @@
 
 import { useState } from "react";
 import { Globe, FileText, Cloud, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import BotSelector from "@/components/BotSelector";
 
 export default function KnowledgeBase() {
+  const [selectedBotId, setSelectedBotId] = useState("");
+  const [selectedBotName, setSelectedBotName] = useState("");
   const [url, setUrl] = useState("");
+  const [folderId, setFolderId] = useState("root");
   const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
   const [statusType, setStatusType] = useState<"info" | "success" | "error">("info");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [syncingDrive, setSyncingDrive] = useState(false);
 
   const showStatus = (message: string, type: "info" | "success" | "error" = "info") => {
     setIngestionStatus(message);
@@ -17,18 +22,18 @@ export default function KnowledgeBase() {
 
   const handleUrlSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url) return;
+    if (!url || !selectedBotId) return;
     setLoading(true);
-    showStatus("Crawling website…", "info");
+    showStatus(`Crawling website for "${selectedBotName}"…`, "info");
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const res = await fetch(`${apiUrl}/api/ingest/url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, bot_id: selectedBotId }),
       });
       const data = await res.json();
-      showStatus(data.status || data.detail, res.ok ? "success" : "error");
+      showStatus(data.message || data.detail, res.ok ? "success" : "error");
     } catch {
       showStatus("Failed to reach the server.", "error");
     } finally {
@@ -41,10 +46,12 @@ export default function KnowledgeBase() {
     const fileInput = document.getElementById("file-upload") as HTMLInputElement;
     const file = fileInput?.files?.[0];
     if (!file) { showStatus("Please select a file first.", "error"); return; }
+    if (!selectedBotId) { showStatus("Please select a chatbot first.", "error"); return; }
     setUploading(true);
-    showStatus("Uploading document…", "info");
+    showStatus(`Uploading document for "${selectedBotName}"…`, "info");
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("bot_id", selectedBotId);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const res = await fetch(`${apiUrl}/api/ingest/document`, {
@@ -52,11 +59,31 @@ export default function KnowledgeBase() {
         body: formData,
       });
       const data = await res.json();
-      showStatus(data.status || data.detail, res.ok ? "success" : "error");
+      showStatus(data.message || data.detail, res.ok ? "success" : "error");
     } catch {
       showStatus("Failed to upload document.", "error");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleGDriveSync = async () => {
+    if (!selectedBotId) { showStatus("Please select a chatbot first.", "error"); return; }
+    setSyncingDrive(true);
+    showStatus(`Syncing Google Drive for "${selectedBotName}"…`, "info");
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/api/ingest/gdrive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot_id: selectedBotId, folder_id: folderId }),
+      });
+      const data = await res.json();
+      showStatus(data.message || data.detail, res.ok ? "success" : "error");
+    } catch {
+      showStatus("Failed to sync Google Drive.", "error");
+    } finally {
+      setSyncingDrive(false);
     }
   };
 
@@ -67,7 +94,14 @@ export default function KnowledgeBase() {
         <p className="text-sm text-gray-500 mt-1">Train your chatbot by adding knowledge sources.</p>
       </div>
 
-      {/* Status Banner */}
+      <BotSelector
+        selectedBotId={selectedBotId}
+        onBotChange={(id, name) => {
+          setSelectedBotId(id);
+          setSelectedBotName(name);
+        }}
+      />
+
       {ingestionStatus && (
         <div className={`p-4 mb-6 rounded-xl flex items-center gap-3 text-sm font-medium border ${
           statusType === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200" :
@@ -93,13 +127,12 @@ export default function KnowledgeBase() {
           <form onSubmit={handleUrlSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Website URL</label>
-              <input
-                type="url" value={url} onChange={(e) => setUrl(e.target.value)}
+              <input type="url" value={url} onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://example.com" required
                 className="w-full px-3.5 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow"
               />
             </div>
-            <button type="submit" disabled={loading}
+            <button type="submit" disabled={loading || !selectedBotId}
               className="w-full bg-blue-600 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               {loading ? "Crawling…" : "Fetch & Train"}
             </button>
@@ -110,47 +143,58 @@ export default function KnowledgeBase() {
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center gap-3 mb-1">
             <div className="p-2 bg-violet-50 rounded-lg"><FileText size={18} className="text-violet-600" /></div>
-            <h2 className="text-base font-semibold text-gray-900">Upload Documents</h2>
+            <h2 className="text-base font-semibold text-gray-900">Upload Document</h2>
           </div>
-          <p className="text-xs text-gray-500 mb-5 ml-11">Upload PDF, TXT, or DOCX files to train the chatbot.</p>
+          <p className="text-xs text-gray-500 mb-5 ml-11">Upload PDF or text files to add to the knowledge base.</p>
           
           <form onSubmit={handleFileUpload} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Select File</label>
-              <input type="file" id="file-upload" accept=".pdf,.txt,.docx"
-                className="block w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+              <input type="file" id="file-upload" accept=".pdf,.txt,.md"
+                className="w-full px-3.5 py-2 text-sm border border-gray-300 rounded-lg file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
             </div>
-            <button type="submit" disabled={uploading}
-              className="w-full bg-blue-600 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <button type="submit" disabled={uploading || !selectedBotId}
+              className="w-full bg-violet-600 text-white text-sm font-semibold py-2.5 px-4 rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               {uploading ? "Uploading…" : "Upload & Train"}
             </button>
           </form>
         </div>
 
-        {/* Integrations */}
+        {/* Google Drive Integration */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 lg:col-span-2">
           <div className="flex items-center gap-3 mb-1">
-            <div className="p-2 bg-amber-50 rounded-lg"><Cloud size={18} className="text-amber-600" /></div>
-            <h2 className="text-base font-semibold text-gray-900">Integrations</h2>
+            <div className="p-2 bg-emerald-50 rounded-lg"><Cloud size={18} className="text-emerald-600" /></div>
+            <h2 className="text-base font-semibold text-gray-900">Google Drive</h2>
           </div>
-          <p className="text-xs text-gray-500 mb-5 ml-11">Connect third-party tools to automatically sync your knowledge base.</p>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {["Google Drive", "Notion", "Zendesk", "Confluence"].map((name) => (
-              <button key={name} className="flex flex-col items-center justify-center p-5 border border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50/40 transition-all group">
-                <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center mb-2.5 group-hover:bg-blue-100 transition-colors">
-                  <span className="text-lg">
-                    {name === "Google Drive" && "📁"}
-                    {name === "Notion" && "📝"}
-                    {name === "Zendesk" && "🎧"}
-                    {name === "Confluence" && "📘"}
-                  </span>
-                </div>
-                <span className="text-xs font-semibold text-gray-700">{name}</span>
-                <span className="text-[10px] text-gray-400 mt-0.5">Coming soon</span>
-              </button>
-            ))}
+          <p className="text-xs text-gray-500 mb-5 ml-11">
+            Sync documents directly from your Google Drive folder.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Folder ID <span className="text-gray-400 font-normal">(optional — defaults to root)</span>
+              </label>
+              <input
+                type="text"
+                value={folderId}
+                onChange={(e) => setFolderId(e.target.value)}
+                placeholder="root"
+                className="w-full max-w-md px-3.5 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+              />
+              <p className="text-xs text-gray-400 mt-1.5">
+                Find your folder ID in the Google Drive URL: drive.google.com/drive/folders/<strong>YOUR_FOLDER_ID</strong>
+              </p>
+            </div>
+            <button
+              onClick={handleGDriveSync}
+              disabled={syncingDrive || !selectedBotId}
+              className="flex items-center gap-2 bg-emerald-600 text-white text-sm font-semibold py-2.5 px-5 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {syncingDrive ? <Loader2 size={16} className="animate-spin" /> : <Cloud size={16} />}
+              {syncingDrive ? "Syncing…" : "Sync Google Drive"}
+            </button>
           </div>
         </div>
       </div>

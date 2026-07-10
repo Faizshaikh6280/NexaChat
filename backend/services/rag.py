@@ -3,6 +3,7 @@ import requests as http_requests
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
+from qdrant_client.models import models as qdrant_models
 from core.config import settings
 
 def get_embeddings():
@@ -30,27 +31,44 @@ def get_vector_store():
         embedding=embeddings,
     )
 
-async def chat_with_rag(query: str, session_id: str) -> str:
+
+async def chat_with_rag(query: str, session_id: str, bot_id: str) -> str:
+    """
+    Answer a user query using RAG, filtered to only retrieve documents
+    belonging to the specified bot_id.
+    """
     import asyncio
-    import time
 
     vector_store = get_vector_store()
 
     if not settings.HUGGINGFACEHUB_API_TOKEN:
         raise ValueError("HUGGINGFACE_API_KEY is not set.")
 
-    # 1. Retrieve relevant documents from Qdrant
-    docs = vector_store.similarity_search(query, k=4)
+    # 1. Retrieve relevant documents from Qdrant — FILTERED by bot_id
+    qdrant_filter = qdrant_models.Filter(
+        must=[
+            qdrant_models.FieldCondition(
+                key="metadata.bot_id",
+                match=qdrant_models.MatchValue(value=bot_id),
+            )
+        ]
+    )
+
+    docs = vector_store.similarity_search(query, k=4, filter=qdrant_filter)
     context_str = "\n\n".join(doc.page_content for doc in docs)
 
     if not context_str.strip():
-        return "I don't have any information about that yet. Please ingest some content first."
+        return (
+            "I don't have any knowledge yet. "
+            "Please ask my owner to feed me some data! 🧠"
+        )
 
     # 2. Build the chat messages for the OpenAI-compatible API
     system_message = (
-        "You are an AI assistant for a company. "
-        "Use the following retrieved context to answer the user's question. "
-        "If you don't know the answer based on the context, say so honestly. "
+        "You are an AI assistant for a specific company. "
+        "Use ONLY the following retrieved context to answer the user's question. "
+        "Do NOT use any outside knowledge. "
+        "If the answer is not in the context, say you don't have that information. "
         "Do not make up information.\n\n"
         f"Context:\n{context_str}"
     )
@@ -104,29 +122,26 @@ async def chat_with_rag(query: str, session_id: str) -> str:
                 error_body = e.response.text if e.response else "No response body"
                 print(f"[Chat] HTTP {e.response.status_code} for {model_name}: {error_body}")
 
-                # If model is busy (400/429/503), retry with backoff or try next model
                 if e.response.status_code in (400, 429, 503):
                     if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt  # 1s, 2s, 4s
+                        wait_time = 2 ** attempt
                         print(f"[Chat] Retrying in {wait_time}s...")
                         await asyncio.sleep(wait_time)
                         continue
                     else:
                         print(f"[Chat] Model {model_name} exhausted retries, trying next model...")
-                        break  # Try next model
+                        break
                 else:
-                    # For other HTTP errors (401, 404, etc.), don't retry
                     return f"The AI model returned an error (HTTP {e.response.status_code}). Please try again later."
 
             except http_requests.exceptions.Timeout:
                 print(f"[Chat] Timeout for {model_name}")
                 if attempt < max_retries - 1:
                     continue
-                break  # Try next model
+                break
 
             except Exception as e:
                 print(f"[Chat] Unexpected error: {e}")
                 return "Sorry, the AI model is currently unavailable. Please try again in 30 seconds."
 
     return "All AI models are currently busy. Please try again in a minute."
-

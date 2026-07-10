@@ -7,7 +7,7 @@
             var url = new URL(scriptTag.src);
             apiBaseUrl = url.protocol + "//" + url.host;
         } catch (e) {
-            console.error("SiteGPT: Failed to parse script source:", e);
+            console.error("NexaChat: Failed to parse script source:", e);
         }
     }
     // Also check for a data attribute override
@@ -15,10 +15,16 @@
         apiBaseUrl = scriptTag.getAttribute("data-api-url");
     }
 
+    // Read bot_id from the script tag — THIS IS REQUIRED for multi-tenant isolation
+    var botId = "";
+    if (scriptTag && scriptTag.getAttribute("data-bot-id")) {
+        botId = scriptTag.getAttribute("data-bot-id");
+    }
+
     // Default configuration (will be overwritten by API)
     var config = {
-        name: "SiteGPT Assistant",
-        primary_color: "#4f46e5",
+        name: "NexaChat Assistant",
+        primary_color: "#2563eb",
         welcome_message: "Hi there! How can I help you today?"
     };
 
@@ -33,7 +39,7 @@
         "}",
         ".sitegpt-launcher {",
         "  width: 60px; height: 60px; border-radius: 50%;",
-        "  background-color: var(--sitegpt-primary, #4f46e5);",
+        "  background-color: var(--sitegpt-primary, #2563eb);",
         "  color: white; border: none; cursor: pointer;",
         "  box-shadow: 0 4px 12px rgba(0,0,0,0.15);",
         "  display: flex; align-items: center; justify-content: center;",
@@ -54,7 +60,7 @@
         "  opacity: 1; pointer-events: auto; transform: translateY(0);",
         "}",
         ".sitegpt-header {",
-        "  background-color: var(--sitegpt-primary, #4f46e5);",
+        "  background-color: var(--sitegpt-primary, #2563eb);",
         "  color: white; padding: 16px; font-weight: 600; font-size: 16px;",
         "  display: flex; justify-content: space-between; align-items: center;",
         "}",
@@ -76,7 +82,7 @@
         "  border: 1px solid #e5e7eb; border-bottom-left-radius: 4px;",
         "}",
         ".sitegpt-msg-user {",
-        "  background-color: var(--sitegpt-primary, #4f46e5); color: white;",
+        "  background-color: var(--sitegpt-primary, #2563eb); color: white;",
         "  align-self: flex-end; border-bottom-right-radius: 4px;",
         "}",
         ".sitegpt-input-area {",
@@ -87,9 +93,9 @@
         "  flex: 1; border: 1px solid #e5e7eb; border-radius: 20px;",
         "  padding: 10px 14px; font-size: 14px; outline: none; color: #111827;",
         "}",
-        ".sitegpt-input:focus { border-color: var(--sitegpt-primary, #4f46e5); }",
+        ".sitegpt-input:focus { border-color: var(--sitegpt-primary, #2563eb); }",
         ".sitegpt-send-btn {",
-        "  background-color: var(--sitegpt-primary, #4f46e5); color: white;",
+        "  background-color: var(--sitegpt-primary, #2563eb); color: white;",
         "  border: none; border-radius: 50%; width: 40px; height: 40px;",
         "  display: flex; align-items: center; justify-content: center; cursor: pointer;",
         "}",
@@ -119,10 +125,15 @@
 
     function boot() {
         document.body.appendChild(container);
+
+        if (!botId) {
+            console.error("NexaChat: No data-bot-id attribute found on the script tag. Widget cannot load.");
+            return;
+        }
         
-        // Try to fetch config, then render
+        // Fetch config for THIS specific bot
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", apiBaseUrl + "/api/config", true);
+        xhr.open("GET", apiBaseUrl + "/api/config?bot_id=" + encodeURIComponent(botId), true);
         xhr.onload = function() {
             if (xhr.status === 200) {
                 try {
@@ -135,7 +146,7 @@
             renderWidget();
         };
         xhr.onerror = function() {
-            console.warn("SiteGPT: Could not reach API, using defaults.");
+            console.warn("NexaChat: Could not reach API, using defaults.");
             renderWidget();
         };
         xhr.send();
@@ -251,7 +262,8 @@
                 sendBtn.disabled = false;
                 input.focus();
             };
-            chatXhr.send(JSON.stringify({ query: query, session_id: "widget-session" }));
+            // Send bot_id with every chat request for data isolation
+            chatXhr.send(JSON.stringify({ query: query, bot_id: botId, session_id: "widget-session" }));
         });
     }
 

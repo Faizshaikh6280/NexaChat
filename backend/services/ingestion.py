@@ -11,6 +11,7 @@ from qdrant_client.models import Distance, VectorParams
 from services.rag import get_qdrant_client, get_embeddings
 from core.config import settings
 
+
 def init_collection_if_not_exists():
     client = get_qdrant_client()
     collections = client.get_collections().collections
@@ -21,7 +22,12 @@ def init_collection_if_not_exists():
             vectors_config=VectorParams(size=384, distance=Distance.COSINE),
         )
 
-def process_and_store_documents(documents):
+
+def process_and_store_documents(documents, bot_id: str):
+    """
+    Chunk documents, tag each chunk with bot_id metadata, 
+    and store them in the Qdrant vector database.
+    """
     init_collection_if_not_exists()
     
     text_splitter = RecursiveCharacterTextSplitter(
@@ -32,6 +38,10 @@ def process_and_store_documents(documents):
     
     if not splits:
         return "No content found to ingest."
+    
+    # Tag every chunk with bot_id so we can filter by it later
+    for doc in splits:
+        doc.metadata["bot_id"] = bot_id
     
     vector_store = get_vector_store()
     vector_store.add_documents(documents=splits)
@@ -52,13 +62,12 @@ def discover_internal_links(base_url: str, max_pages: int = 50) -> list[str]:
     discovered = []
     
     headers = {
-        "User-Agent": "SiteGPT-Crawler/1.0 (RAG Chatbot Builder)"
+        "User-Agent": "NexaChat-Crawler/1.0 (RAG Chatbot Builder)"
     }
     
     while to_visit and len(discovered) < max_pages:
         current_url = to_visit.pop(0)
         
-        # Normalize URL (remove fragment, trailing slash inconsistency)
         parsed = urlparse(current_url)
         normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         if normalized.endswith('/') and len(parsed.path) > 1:
@@ -72,7 +81,6 @@ def discover_internal_links(base_url: str, max_pages: int = 50) -> list[str]:
             response = http_requests.get(current_url, headers=headers, timeout=10, allow_redirects=True)
             content_type = response.headers.get('Content-Type', '')
             
-            # Only process HTML pages
             if 'text/html' not in content_type:
                 continue
                 
@@ -82,32 +90,26 @@ def discover_internal_links(base_url: str, max_pages: int = 50) -> list[str]:
             discovered.append(current_url)
             print(f"  [Crawler] Discovered: {current_url}")
             
-            # Parse page for more links
             soup = BeautifulSoup(response.text, 'html.parser')
             
             for link in soup.find_all('a', href=True):
                 href = link['href']
                 
-                # Skip non-page links
                 if href.startswith(('#', 'mailto:', 'tel:', 'javascript:')):
                     continue
                 
-                # Resolve relative URLs
                 full_url = urljoin(current_url, href)
                 parsed_link = urlparse(full_url)
                 
-                # Only follow links on the same domain
                 if parsed_link.netloc != base_domain:
                     continue
                 
-                # Skip non-HTML resources
                 path_lower = parsed_link.path.lower()
                 skip_extensions = ('.pdf', '.jpg', '.jpeg', '.png', '.gif', '.svg', 
                                    '.css', '.js', '.zip', '.mp4', '.mp3', '.ico')
                 if any(path_lower.endswith(ext) for ext in skip_extensions):
                     continue
                 
-                # Normalize and add to queue
                 clean_url = f"{parsed_link.scheme}://{parsed_link.netloc}{parsed_link.path}"
                 if clean_url not in visited:
                     to_visit.append(full_url)
@@ -122,7 +124,7 @@ def discover_internal_links(base_url: str, max_pages: int = 50) -> list[str]:
 def scrape_page_content(url: str) -> str:
     """Fetch a page and extract clean text content (no nav, footer, scripts)."""
     headers = {
-        "User-Agent": "SiteGPT-Crawler/1.0 (RAG Chatbot Builder)"
+        "User-Agent": "NexaChat-Crawler/1.0 (RAG Chatbot Builder)"
     }
     
     try:
@@ -132,12 +134,10 @@ def scrape_page_content(url: str) -> str:
         
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Remove unwanted elements
         for tag in soup.find_all(['script', 'style', 'nav', 'footer', 'header', 
                                    'noscript', 'iframe', 'form']):
             tag.decompose()
         
-        # Try to get main content first, fall back to body
         main_content = soup.find('main') or soup.find('article') or soup.find('body')
         
         if main_content:
@@ -145,7 +145,6 @@ def scrape_page_content(url: str) -> str:
         else:
             text = soup.get_text(separator='\n', strip=True)
         
-        # Clean up excessive whitespace
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         return '\n'.join(lines)
         
@@ -154,14 +153,13 @@ def scrape_page_content(url: str) -> str:
         return ""
 
 
-async def ingest_url(url: str):
-    """Crawl an entire website and ingest all pages."""
+async def ingest_url(url: str, bot_id: str):
+    """Crawl an entire website and ingest all pages, tagged with bot_id."""
     import asyncio
     
     loop = asyncio.get_event_loop()
     
-    # Step 1: Discover all internal pages (run in thread pool to not block)
-    print(f"[Ingestion] Starting crawl of: {url}")
+    print(f"[Ingestion] Starting crawl of: {url} for bot: {bot_id}")
     pages = await loop.run_in_executor(None, discover_internal_links, url)
     
     if not pages:
@@ -169,14 +167,13 @@ async def ingest_url(url: str):
     
     print(f"[Ingestion] Found {len(pages)} pages. Scraping content...")
     
-    # Step 2: Scrape content from each page
     all_documents = []
     
     def scrape_all():
         docs = []
         for page_url in pages:
             content = scrape_page_content(page_url)
-            if content and len(content) > 50:  # Skip near-empty pages
+            if content and len(content) > 50:
                 docs.append(Document(
                     page_content=content,
                     metadata={"source": page_url}
@@ -189,14 +186,13 @@ async def ingest_url(url: str):
     if not all_documents:
         return "Pages were found but no meaningful content could be extracted."
     
-    # Step 3: Chunk and store
-    result = process_and_store_documents(all_documents)
+    result = process_and_store_documents(all_documents, bot_id)
     
     return f"Crawled {len(pages)} pages. {result}"
 
 
-async def ingest_document(filename: str, content: bytes):
-    # Save content to a temporary file
+async def ingest_document(filename: str, content: bytes, bot_id: str):
+    """Ingest a document file (PDF, TXT, MD), tagged with bot_id."""
     ext = os.path.splitext(filename)[1].lower()
     
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
@@ -212,11 +208,13 @@ async def ingest_document(filename: str, content: bytes):
             raise ValueError(f"Unsupported file extension: {ext}")
             
         docs = loader.load()
-        return process_and_store_documents(docs)
+        return process_and_store_documents(docs, bot_id)
     finally:
         os.remove(temp_file_path)
 
-async def ingest_google_drive():
+
+async def ingest_google_drive(bot_id: str, folder_id: str = "root"):
+    """Ingest documents from Google Drive, tagged with bot_id."""
     from langchain_google_community import GoogleDriveLoader
     
     credentials_path = os.path.join(os.getcwd(), "credentials.json")
@@ -224,11 +222,11 @@ async def ingest_google_drive():
         raise ValueError("credentials.json not found in backend directory.")
         
     loader = GoogleDriveLoader(
-        folder_id="root",
+        folder_id=folder_id,
         credentials_path=credentials_path,
         token_path=os.path.join(os.getcwd(), "token.json"),
         recursive=False,
     )
     
     docs = loader.load()
-    return process_and_store_documents(docs)
+    return process_and_store_documents(docs, bot_id)

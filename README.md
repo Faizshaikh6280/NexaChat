@@ -7,6 +7,16 @@ Whether it's scraping your company website, uploading PDFs, or syncing Google Dr
 ![NexaChat Dashboard](https://img.shields.io/badge/Status-Active-success)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
+## 📸 Platform Previews
+
+### The Admin Dashboard
+Manage your knowledge sources, analyze chats, and customize the bot's appearance in a beautiful, modern interface.
+![Dashboard Preview](assets/dashboard_demo.png)
+
+### The Embedded Chat Widget (Live Demo on Aura Fitness)
+A lightweight widget that blends seamlessly into any brand's website.
+![Widget Preview](assets/widget_demo.png)
+
 ---
 
 ## 🏗️ Architecture Overview

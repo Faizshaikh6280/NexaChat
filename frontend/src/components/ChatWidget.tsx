@@ -30,7 +30,7 @@ export default function ChatWidget() {
     setIsLoading(true);
 
     try {
-      const res = await chatWithBot(userMessage);
+      const res = await chatWithBot(userMessage, 'preview-bot-id');
       setMessages(prev => [...prev, { role: 'bot', text: res.answer }]);
     } catch (error) {
       setMessages(prev => [...prev, { role: 'bot', text: 'Sorry, I encountered an error. Please try again later.' }]);

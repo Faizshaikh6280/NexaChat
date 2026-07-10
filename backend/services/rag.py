@@ -3,7 +3,7 @@ import requests as http_requests
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
-from qdrant_client.models import models as qdrant_models
+from qdrant_client import models as qdrant_models
 from core.config import settings
 
 def get_embeddings():
